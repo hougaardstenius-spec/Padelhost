@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Padel Center - Vagt-Tjekliste v2</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide ikoner -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Canvas-confetti -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        .custom-checkbox:checked + label {
+            text-decoration: line-through;
+            color: #9ca3af;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen font-sans">
+
+    <!-- 1. BRUGER-VÆLGER OVERLAY (Vises hvis ingen aktiv bruger) -->
+    <div id="user-modal" class="fixed inset-0 bg-slate-950/90 z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <h2 class="text-xl font-bold text-emerald-400 mb-1 flex items-center gap-2">
+                <i data-lucide="users"></i> Hvem er på vagt?
+            </h2>
+            <p class="text-xs text-slate-400 mb-6">Vælg din profil for at samle XP på din vagt, eller opret en ny profil.</p>
+            
+            <!-- Liste over eksisterende brugere -->
+            <div id="users-list" class="space-y-2 mb-6 max-h-60 overflow-y-auto pr-1">
+                <!-- Dynamiske brugere indsættes her -->
+            </div>
+
+            <!-- Opret ny bruger -->
+            <div class="border-t border-slate-700 pt-4">
+                <label class="block text-xs font-semibold text-slate-400 mb-2">Opret ny kollega:</label>
+                <div class="flex gap-2">
+                    <input type="text" id="new-user-name" placeholder="Navn..." class="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500">
+                    <button onclick="createNewUser()" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2 rounded-lg text-sm transition-colors">
+                        Tilføj
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. HOVED-APP -->
+    <!-- Header & Gamification Bar -->
+    <header class="sticky top-0 bg-slate-800 border-b border-slate-700 p-4 shadow-lg z-40">
+        <div class="max-w-xl mx-auto">
+            <div class="flex justify-between items-center mb-2">
+                <div>
+                    <h1 class="text-lg font-bold text-emerald-400 flex items-center gap-2">
+                        <i data-lucide="activity"></i> Padel Duty Master
+                    </h1>
+                    <!-- Aktiv bruger information -->
+                    <button onclick="logoutUser()" class="text-xs text-slate-400 hover:text-rose-400 flex items-center gap-1 mt-1 transition-colors">
+                        Vagt: <span id="active-user-display" class="font-bold text-slate-200 underline">Vælg bruger</span> 
+                        <i data-lucide="log-out" class="w-3 h-3"></i>
+                    </button>
+                </div>
+                <!-- XP & Level Display -->
+                <div class="text-right">
+                    <span id="level-badge" class="bg-emerald-500 text-slate-950 text-2xs font-bold px-2 py-1 rounded-full">Level 1: Novice</span>
+                    <p class="text-xs text-emerald-400 mt-1 font-semibold" id="xp-display">0 XP</p>
+                </div>
+            </div>
+
+            <!-- Fremskridt -->
+            <div class="w-full bg-slate-700 h-3 rounded-full overflow-hidden mt-3">
+                <div id="progress-bar" class="bg-gradient-to-r from-emerald-500 to-teal-400 h-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <div class="flex justify-between text-2xs text-slate-400 mt-1">
+                <span id="progress-text">0/0 opgaver (0%)</span>
+                <span id="day-indicator" class="font-semibold text-emerald-400"></span>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-xl mx-auto p-4 pb-24 space-y-6">
+
+        <!-- Navigation Tabs -->
+        <div class="flex bg-slate-800 p-1 rounded-lg border border-slate-700">
+            <button onclick="switchTab('vagt')" id="tab-vagt" class="flex-1 py-2 text-center text-sm font-semibold rounded-md bg-emerald-500 text-slate-950 transition-all">
+                Løbende Vagt
+            </button>
+            <button onclick="switchTab('luk')" id="tab-luk" class="flex-1 py-2 text-center text-sm font-semibold rounded-md text-slate-400 hover:text-slate-200 transition-all">
+                Lukkevagt
+            </button>
+        </div>
+
+        <!-- SEKTION FOR OVERLADTE / GLEMTE OPGAVER FRA I GÅR -->
+        <div id="overdue-section" class="bg-rose-950/40 border border-rose-500/30 rounded-xl p-4 shadow-md hidden">
+            <h2 class="text-base font-bold text-rose-400 mb-1 flex items-center gap-2 border-b border-rose-500/20 pb-2">
+                <i data-lucide="alert-triangle" class="w-5 h-5 text-rose-400 animate-pulse"></i> OVERLADT FRA SIDSTE VAGT!
+            </h2>
+            <p class="text-xs text-slate-300 mb-3 font-semibold">Disse opgaver blev ikke nået sidst. De skal klares først og giver <span class="text-emerald-400">DOBBELT XP!</span></p>
+            <div class="space-y-3" id="tasks-overdue"></div>
+        </div>
+
+        <!-- SEKTION: LØBENDE VAGT -->
+        <div id="section-vagt" class="space-y-6">
+            <!-- CO-working / 1. sal -->
+            <div class="bg-slate-800 rounded-xl p-4 border border-slate-700 shadow-md card-category" data-category="co-working">
+                <h2 class="text-base font-bold text-emerald-400 mb-3 flex items-center gap-2 border-b border-slate-700 pb-2">
+                    <i data-lucide="briefcase" class="w-5 h-5"></i> START MED: CO-working / 1. sal
+                </h2>
+                <div class="space-y-3" id="tasks-coworking"></div>
+            </div>
+
+            <!-- Dameomklædning -->
+            <div class="bg-slate-800 rounded-xl p-4 border border-slate-700 shadow-md card-category" data-category="dame">
+                <h2 class="text-base font-bold text-pink-400 mb-3 flex items-center gap-2 border-b border-slate-700 pb-2">
+                    <i data-lucide="sparkles" class="w-5 h-5"></i> Dameomklædning - tjek løbende
+                </h2>
+                <div class="space-y-3" id="tasks-dame"></div>
+            </div>
+
+            <!-- Herreomklædning -->
+            <div class="bg-slate-800 rounded-xl p-4 border border-slate-700 shadow-md card-category" data-category="herre">
+                <h2 class="text-base font-bold text-blue-400 mb-3 flex items-center gap-2 border-b border-slate-700 pb-2">
+                    <i data-lucide="droplet" class="w-5 h-5"></i> Herreomklædning - tjek løbende
+                </h2>
+                <div class="space-y-3" id="tasks-herre"></div>
+            </div>
+
+            <!-- Opfyldning af varer -->
+            <div class="bg-slate-800 rounded-xl p-4 border border-slate-700 shadow-md card-category" data-category="opfyldning">
+                <h2 class="text-base font-bold text-amber-400 mb-3 flex items-center gap-2 border-b border-slate-700 pb-2">
+                    <i data-lucide="package" class="w-5 h-5"></i> Opfyldning af varer
+                </h2>
+                <div class="space-y-3" id="tasks-opfyldning"></div>
+            </div>
+
+            <!-- Studierne -->
+            <div class="bg-slate-800 rounded-xl p-4 border border-slate-700 shadow-md card-category" data-category="studierne">
+                <h2 class="text-base font-bold text-purple-400 mb-3 flex items-center gap-2 border-b border-slate-700 pb-2">
+                    <i data-lucide="tv" class="w-5 h-5"></i> Studierne - tjek løbende
+                </h2>
+                <div class="space-y-3" id="tasks-studierne"></div>
+            </div>
+
+            <!-- Gang, Bar & Fitness -->
+            <div class="bg-slate-800 rounded-xl p-4 border border-slate-700 shadow-md card-category" data-category="bar">
+                <h2 class="text-base font-bold text-teal-400 mb-3 flex items-center gap-2 border-b border-slate-700 pb-2">
+                    <i data-lucide="coffee" class="w-5 h-5"></i> Gang- og barområde + fitness
+                </h2>
+                <div class="space-y-3" id="tasks-bar"></div>
+            </div>
+
+            <!-- Selskabslokale -->
+            <div class="bg-slate-800 rounded-xl p-4 border border-slate-700 shadow-md card-category" data-category="selskab">
+                <h2 class="text-base font-bold text-indigo-400 mb-3 flex items-center gap-2 border-b border-slate-700 pb-2">
+                    <i data-lucide="users" class="w-5 h-5"></i> Selskabslokale (efter dans/aktiviteter)
+                </h2>
+                <div class="space-y-3" id="tasks-selskab"></div>
+            </div>
+
+            <!-- Udendørsarealer -->
+            <div class="bg-slate-800 rounded-xl p-4 border border-slate-700 shadow-md card-category" data-category="ude">
+                <h2 class="text-base font-bold text-emerald-500 mb-3 flex items-center gap-2 border-b border-slate-700 pb-2">
+                    <i data-lucide="trees" class="w-5 h-5"></i> Udendørsarealer
+                </h2>
+                <div class="space-y-3" id="tasks-ude"></div>
+            </div>
+
+            <!-- EKSTRA-OPGAVER PÅ DAGEN -->
+            <div class="bg-slate-800 rounded-xl p-4 border border-rose-500/30 shadow-md card-category" data-category="ekstra">
+                <h2 class="text-base font-bold text-rose-400 mb-1 flex items-center gap-2 border-b border-slate-700 pb-2">
+                    <i data-lucide="calendar" class="w-5 h-5"></i> HUSK: Ekstra-opgaver (<span id="current-day-text">Dagen</span>)
+                </h2>
+                <div class="space-y-3" id="tasks-ekstra"></div>
+            </div>
+        </div>
+
+        <!-- SEKTION: LUKKEVAGT -->
+        <div id="section-luk" class="space-y-6 hidden">
+            <!-- Bar- og loungeområde (Lukning) -->
+            <div class="bg-slate-800 rounded-xl p-4 border border-slate-700 shadow-md card-category" data-category="luk-bar">
+                <h2 class="text-base font-bold text-amber-500 mb-3 flex items-center gap-2 border-b border-slate-700 pb-2">
+                    <i data-lucide="lock" class="w-5 h-5"></i> Lukning: Bar- og loungeområde
+                </h2>
+                <div class="space-y-3" id="tasks-luk-bar"></div>
+            </div>
+
+            <!-- Øvrigt (Lukning) -->
+            <div class="bg-slate-800 rounded-xl p-4 border border-slate-700 shadow-md card-category" data-category="luk-ovrigt">
+                <h2 class="text-base font-bold text-cyan-400 mb-3 flex items-center gap-2 border-b border-slate-700 pb-2">
+                    <i data-lucide="key" class="w-5 h-5"></i> Lukning: Øvrigt sikkerhed & tjek
+                </h2>
+                <div class="space-y-3" id="tasks-luk-ovrigt"></div>
+            </div>
+        </div>
+
+        <!-- Nulstil og afslut vagt -->
+        <div class="bg-slate-800 rounded-xl p-4 border border-slate-700 text-center space-y-3">
+            <h3 class="text-sm font-bold">Er din vagt slut?</h3>
+            <p class="text-xs text-slate-400">Dette gemmer dine gennemførte opgaver, og ruller eventuelt ikke-udførte opgaver over til næste dags hold som ekstra vigtige.</p>
+            <button onclick="endShift()" class="w-full py-2.5 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-bold rounded-lg text-sm transition-all shadow-lg">
+                🏁 Afslut vagt & Gem uafsluttede opgaver
+            </button>
+        </div>
+
+    </main>
+
+    <script>
+        // --- DATASTRUKTUR FOR ALLE OPGAVER ---
+        const data = {
+            coworking: [
+                { id: "cw1", text: "Tjek herre- og dametoiletter (6 i alt inkl. bagtrappen - papir + sæbe fyldt op og rengøring ok)" },
+                { id: "cw2", text: "Skraldespande tømt ved alle toiletter + køkkenet på den brune gang" },
+                { id: "cw3", text: "Pant tømt ved CO-working køkken - er i brunt skab nr. 35" },
+                { id: "cw4", text: "Køkken ser pænt og rent ud og der er opvasketabs samt rene viskestykker og karklude" },
+                { id: "cw5", text: "Vaskemaskinen er tømt og evt. vasketøj hænges til tørre" },
+                { id: "cw6", text: "Døren til 1. sal er lukket" }
+            ],
+            dame: [
+                { id: "d1", text: "Skraldespand tømt. Tjek også om madamposen skal skiftes" },
+                { id: "d2", text: "Papir og sæbe fyldt op (håndsæbe, håndpapir, toiletpapir)" },
+                { id: "d3", text: "Evt. affald og glemte sager er fjernet" },
+                { id: "d4", text: "Bruseområdet er svabet samt hår og skidt fjernet fra risten" }
+            ],
+            herre: [
+                { id: "h1", text: "Skraldespand tømt" },
+                { id: "h2", text: "Papir og sæbe fyldt op (håndsæbe, håndpapir, toiletpapir)" },
+                { id: "h3", text: "Evt. affald og glemte sager er fjernet" },
+                { id: "h4", text: "Bruseområdet er svabet samt hår og skidt fjernet fra risten" }
+            ],
+            opfyldning: [
+                { id: "o1", text: "Køleskabe i baren fyldt op (nye drikkevarer sættes bagerst - logo vender udad)" },
+                { id: "o2", text: "Varer på baren er fyldt op (snacks, grip mm.)" },
+                { id: "o3", text: "Boldskab ved baren fyldt op" },
+                { id: "o4", text: "Drikkevarer-automaten fyldt op (nye drikkevarer sættes inderst - logo vender udad)" },
+                { id: "o5", text: "Boldautomaten fyldt op" }
+            ],
+            studierne: [
+                { id: "s1", text: "Pant, snus, bolde mm. er ryddet op (husk at tjekke langs vægge)" },
+                { id: "s2", text: "Skraldespande og pant i alle studier tømt" },
+                { id: "s3", text: "Møbler i studierne står pænt" },
+                { id: "s4", text: "Vaskene i studie 1 og studie 3 er rengjorte" },
+                { id: "s5", text: "Turneringspodie tørret af for støv" },
+                { id: "s6", text: "Fitnessmaskiner støves af" }
+            ],
+            bar: [
+                { id: "b1", text: "Tjek og svar på Studio-mail (Vedr. træning: send til Jorge. Noget man ikke kan svare på: send til Cecilia)" },
+                { id: "b2", text: "Skraldespand + pantspande tømt. Pant skal i pantrum bag bane 1" },
+                { id: "b3", text: "Stole, sofaer, borde står pænt og evt. blå støv tørres af sofaer. Borde tørres af" },
+                { id: "b4", text: "Gulv støvsuges og vaskes når det er beskidt" },
+                { id: "b5", text: "Tjek sand på shuffleboardbord og at brikker ligger der, så folk kan spille" },
+                { id: "b6", text: "Kaffemaskinen renset (husk mælkebeholderen + slangen til mælken)" },
+                { id: "b7", text: "Fadølsanlæg renset (Skal renses hver 30. dag. Tjek om det trænger på displayet)" },
+                { id: "b8", text: "Vask med klude og viskestykker sættes over hvis kassen er fyldt" },
+                { id: "b9", text: "Vægte mm. i fitnessområde står pænt. Område støvsuges" },
+                { id: "b10", text: "Evt. livesport, eller nyeste padel vises på TV'et" },
+                { id: "b11", text: "Tomme fustager og pap ryddet op. Tjek også lager og rengøringsrum" }
+            ],
+            selskab: [
+                { id: "se1", text: "Tjek herre- og dametoilet (papir + sæbe fyldt op og rengøring ok)" },
+                { id: "se2", text: "Skraldespane tømt (køkken + herre- og dametoilet)" },
+                { id: "se3", text: "Opvaskemaskine slukket (tømt for vand og rengjort. Bakker står i opvaskemaskinen)" },
+                { id: "se4", text: "Køkkenet ser pænt og rent ud" },
+                { id: "se5", text: "Glemte sager er fjernet" }
+            ],
+            ude: [
+                { id: "u1", text: "Fjern skrald, snus mm. ved Jenagade-indgang" },
+                { id: "u2", text: "Fjern skrald, snus mm. ved terrassen og petanquebanen, cykelparkering og græsarealer" }
+            ],
+            ekstra: {
+                mandag: [
+                    { id: "ek_ma1", text: "Nedfrys evt. overskydende toasts fra fredag ved lukning", xp: 20 },
+                    { id: "ek_ma2", text: "Klargøring Golbal Network (hver anden mandag)", xp: 20 }
+                ],
+                tirsdag: [
+                    { id: "ek_ti1", text: "Tøm postkassen ved Jenagade-indgang", xp: 20 },
+                    { id: "ek_ti2", text: "Oprydning og rengøring af mødelokale efter Global Network (hver anden tirsdag)", xp: 20 },
+                    { id: "ek_ti3", text: "Fjern evt. skrald, snus mm. langs hækken ved Lemberggade/Nyrnberggade", xp: 20 }
+                ],
+                onsdag: [
+                    { id: "ek_on1", text: "Gennemgå lånebat og erstat evt. ødelagte med nye", xp: 20 }
+                ],
+                torsdag: [
+                    { id: "ek_to1", text: "Tør støv af i bar (ovenpå kaffemaskine, hylder ved glas mm.)", xp: 20 },
+                    { id: "ek_to2", text: "Fjern evt. affald ved Nyrnberggade-indgang samt bagindgang ved Nyrnberggade", xp: 20 }
+                ],
+                fredag: [
+                    { id: "ek_fr1", text: "Støv porte mellem studierne af", xp: 20 },
+                    { id: "ek_fr2", text: "Nedfrys evt. overskydende toasts fra tirsdag ved lukning", xp: 20 }
+                ],
+                lordag: [
+                    { id: "ek_lo1", text: "Tøm postkassen ved Jenagade-indgang", xp: 20 },
+                    { id: "ek_lo2", text: "Tør støv af på banekanter Bane 1 + 2 + 3", xp: 20 }
+                ],
+                sondag: [
+                    { id: "ek_so1", text: "Godkend U18-rengørings gulvvask i salen, så det er klar til dans mandag", xp: 20 },
+                    { id: "ek_so2", text: "Tør støv af på banekanter Bane 4 + 5 + 6 + 7", xp: 20 }
+                ]
+            },
+            lukBar: [
+                { id: "l1", text: "Toastgrill rengjort", xp: 20 },
+                { id: "l2", text: "Airfryer rengjort", xp: 20 },
+                { id: "l3", text: "Croissant-fad og låg rengjort", xp: 20 },
+                { id: "l4", text: "Filter-kaffemaskine rengjort (kaffefilter fjernet + kander er rene)", xp: 20 },
+                { id: "l5", text: "Fadølsanlæg samt spildbakke rengjort", xp: 20 },
+                { id: "l6", text: "Fadølshaner låste og lys i anlæg slukket", xp: 20 },
+                { id: "l7", text: "Hængelåse er sat på køleskabe og boldskab er låst", xp: 20 },
+                { id: "l8", text: "Snacks, grip mm. er sat i lagerrummet.", xp: 20 },
+                { id: "l9", text: "Opvaskemaskinen startet", xp: 20 },
+                { id: "l10", text: "Brugte klude og viskestykker smidt til vask", xp: 20 },
+                { id: "l11", text: "Borde i baren er vasket (med sæbe!) og baren er generelt pæn og ryddet", xp: 20 },
+                { id: "l12", text: "Sofaer mm. står pænt og borde i loungeområde er tørret af", xp: 20 },
+                { id: "l13", text: "Brikker til shuffle-board lægges i baren", xp: 20 },
+                { id: "l14", text: "Lounge-TV slukket. Lille reklame-TV i gang forbliver tændt.", xp: 20 },
+                { id: "l15", text: "Tablet, kortlæser, telefon, fjernbetjening, pengekasse og PC er sat på lager", xp: 20 },
+                { id: "l16", text: "Baren er lukket-skilt står på baren", xp: 20 },
+                { id: "l17", text: "Skraldespand tømt og bar er ryddet for pap, flasker osv.", xp: 20 }
+            ],
+            lukOvrigt: [
+                { id: "lo1", text: "Alle banelys står på 'Automatisk'", xp: 20 },
+                { id: "lo2", text: "Soundbokse på lager og sat til strøm (4 stk. - 1 stor og 3 små)", xp: 20 },
+                { id: "lo3", text: "Batteri fra støvsuger sat til strøm", xp: 20 },
+                { id: "lo4", text: "Alle vinduer i bygningen er lukkede", xp: 20 },
+                { id: "lo5", text: "Porte og døre i studierne låste", xp: 20 },
+                { id: "lo6", text: "Port/døre ved Jenagade og Lemberggade er låste (automatisk - tjek låsen lyser rød)", xp: 20 },
+                { id: "lo7", text: "To ydredøre ved selskabslokale er låste (dør ud til Nyrnberggade og dør ud til gård)", xp: 20 },
+                { id: "lo8", text: "Indre døre i selskabslokale låste (dør i køkken, dør ud til toilet-gang, dør ind til centeret)", xp: 20 },
+                { id: "lo9", text: "Øvrige døre låste (mødelokale, lager, rengøringsrum, p-rum, trænerrum, pantrum, dør til 1. sal)", xp: 20 },
+                { id: "lo10", text: "Gamle lånebat er sat frem sammen med 'Betalingszone'-skilt. Wilson bat på kontor.", xp: 20 },
+                { id: "lo11", text: "Lys slukket i alle rum (loftlys i gangen forbliver tændt)", xp: 20 },
+                { id: "lo12", text: "Affald er båret ud i containere", xp: 20 },
+                { id: "lo13", text: "Nøgler lagt i nøgleboks", xp: 20 }
+            ]
+        };
+
+        const ugedage = ["sondag", "mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lordag"];
+        const ugedageNavne = ["Søndag", "Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag"];
+        
+        const d = new Date();
+        const dagsIndex = d.getDay(); 
+        const dagensKey = ugedage[dagsIndex];
+        const dagensNavn = ugedageNavne[dagsIndex];
+
+        // Fladtrykt array med alle standard-opgaver til hurtig opslag
+        const allBaseTasks = [
+            ...data.coworking, ...data.dame, ...data.herre, ...data.opfyldning, 
+            ...data.studierne, ...data.bar, ...data.selskab, ...data.ude,
+            ...data.lukBar, ...data.lukOvrigt,
+            ...(data.ekstra.mandag), ...(data.ekstra.tirsdag), ...(data.ekstra.onsdag),
+            ...(data.ekstra.torsdag), ...(data.ekstra.fredag), ...(data.ekstra.lordag),
+            ...(data.ekstra.sondag)
+        ];
+
+        // --- APP STATE ---
+        let users = JSON.parse(localStorage.getItem('padel_users')) || [];
+        let currentUser = localStorage.getItem('padel_current_user') || null;
+        
+        let completedToday = JSON.parse(localStorage.getItem('padel_completed_today')) || [];
+        let overdueTasks = JSON.parse(localStorage.getItem('padel_overdue')) || [];
+        let activeTab = 'vagt';
+
+        // --- APPOPSTART ---
+        window.onload = function() {
+            document.getElementById('current-day-text').innerText = dagensNavn;
+            document.getElementById('day-indicator').innerText = "📍 " + dagensNavn;
+
+            renderUserSelector();
+
+            if (!currentUser) {
+                document.getElementById('user-modal').classList.remove('hidden');
+            } else {
+                document.getElementById('user-modal').classList.add('hidden');
+                document.getElementById('active-user-display').innerText = currentUser;
+            }
+
+            // Byg listerne
+            buildList('tasks-coworking', data.coworking);
+            buildList('tasks-dame', data.dame);
+            buildList('tasks-herre', data.herre);
+            buildList('tasks-opfyldning', data.opfyldning);
+            buildList('tasks-studierne', data.studierne);
+            buildList('tasks-bar', data.bar);
+            buildList('tasks-selskab', data.selskab);
+            buildList('tasks-ude', data.ude);
+            buildList('tasks-ekstra', data.ekstra[dagensKey] || []);
+            buildList('tasks-luk-bar', data.lukBar);
+            buildList('tasks-luk-ovrigt', data.lukOvrigt);
+
+            // Byg "Overladt fra i går"
+            buildOverdueList();
+
+            updateProgress();
+            lucide.createIcons();
+        };
+
+        // --- BRUGER LOGIK ---
+        function renderUserSelector() {
+            const listDiv = document.getElementById('users-list');
+            listDiv.innerHTML = '';
+            
+            if (users.length === 0) {
+                listDiv.innerHTML = `<p class="text-xs text-slate-500 italic">Ingen oprettede profiler endnu.</p>`;
+                return;
+            }
+
+            users.forEach(user => {
+                const item = document.createElement('div');
+                item.className = "flex justify-between items-center p-3 bg-slate-700 hover:bg-slate-650 rounded-xl cursor-pointer transition-colors";
+                item.innerHTML = `
+                    <div onclick="selectUser('${user.name}')" class="flex-1">
+                        <span class="font-bold text-sm text-white">${user.name}</span>
+                        <span class="text-xs text-emerald-400 block">${user.xp} XP (Level ${calculateLevel(user.xp)})</span>
+                    </div>
+                    <button onclick="deleteUser('${user.name}')" class="text-slate-400 hover:text-rose-500 p-1">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                    </button>
+                `;
+                listDiv.appendChild(item);
+            });
+            lucide.createIcons();
+        }
+
+        function selectUser(name) {
+            currentUser = name;
+            localStorage.setItem('padel_current_user', name);
+            document.getElementById('active-user-display').innerText = name;
+            document.getElementById('user-modal').classList.add('hidden');
+            updateProgress();
+        }
+
+        function createNewUser() {
+            const nameInput = document.getElementById('new-user-name');
+            const name = nameInput.value.trim();
+            if (!name) return;
+
+            if (users.some(u => u.name.toLowerCase() === name.toLowerCase())) {
+                alert("Navnet findes allerede!");
+                return;
+            }
+
+            users.push({ name: name, xp: 0 });
+            localStorage.setItem('padel_users', JSON.stringify(users));
+            nameInput.value = '';
+            renderUserSelector();
+        }
+
+        function deleteUser(name) {
+            if (confirm(`Vil du slette profilen for ${name}?`)) {
+                users = users.filter(u => u.name !== name);
+                localStorage.setItem('padel_users', JSON.stringify(users));
+                if (currentUser === name) {
+                    currentUser = null;
+                    localStorage.removeItem('padel_current_user');
+                    document.getElementById('user-modal').classList.remove('hidden');
+                }
+                renderUserSelector();
+            }
+        }
+
+        function logoutUser() {
+            currentUser = null;
+            localStorage.removeItem('padel_current_user');
+            document.getElementById('user-modal').classList.remove('hidden');
+            renderUserSelector();
+        }
+
+        // --- BYG STANDARD-LISTERNE ---
+        function buildList(containerId, list) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            
+            list.forEach(task => {
+                const isChecked = completedToday.includes(task.id);
+                // Hvis opgaven er i "Overdue", skal den ikke vises i sin almindelige kategori for at undgå dubletter
+                if (overdueTasks.includes(task.id)) {
+                    return; 
+                }
+
+                const xpValue = task.xp || 10;
+                
+                const item = document.createElement('div');
+                item.className = "flex items-start gap-3 p-2 hover:bg-slate-750 rounded-lg transition-colors";
+                item.innerHTML = `
+                    <div class="flex items-center h-5">
+                        <input id="${task.id}" type="checkbox" ${isChecked ? 'checked' : ''} 
+                            class="custom-checkbox h-5 w-5 rounded border-slate-600 bg-slate-700 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-slate-800"
+                            onclick="toggleTask('${task.id}', ${xpValue}, this)">
+                    </div>
+                    <label for="${task.id}" class="text-sm text-slate-300 leading-tight select-none cursor-pointer flex-1">
+                        ${task.text}
+                        <span class="text-3xs text-emerald-400 font-bold ml-1">+${xpValue} XP</span>
+                    </label>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        // --- BYG "OVERLADT FRA I GÅR" SEKTION ---
+        function buildOverdueList() {
+            const container = document.getElementById('tasks-overdue');
+            container.innerHTML = '';
+            
+            if (overdueTasks.length === 0) {
+                document.getElementById('overdue-section').classList.add('hidden');
+                return;
+            }
+
+            document.getElementById('overdue-section').classList.remove('hidden');
+
+            overdueTasks.forEach(taskId => {
+                const task = allBaseTasks.find(t => t.id === taskId);
+                if (!task) return;
+
+                const isChecked = completedToday.includes(taskId);
+                const doubleXP = (task.xp || 10) * 2; // Giver dobbelt XP
+
+                const item = document.createElement('div');
+                item.className = "flex items-start gap-3 p-2 bg-rose-950/20 border border-rose-500/20 rounded-lg hover:bg-rose-950/30 transition-colors";
+                item.innerHTML = `
+                    <div class="flex items-center h-5">
+                        <input id="${task.id}" type="checkbox" ${isChecked ? 'checked' : ''} 
+                            class="custom-checkbox h-5 w-5 rounded border-rose-600 bg-slate-700 text-rose-500 focus:ring-rose-500 focus:ring-offset-slate-800"
+                            onclick="toggleTask('${task.id}', ${doubleXP}, this, true)">
+                    </div>
+                    <label for="${task.id}" class="text-sm text-slate-200 leading-tight select-none cursor-pointer flex-1">
+                        <span class="text-3xs bg-rose-500 text-white font-bold px-1 py-0.5 rounded mr-1">VIGTIG</span>
+                        ${task.text}
+                        <span class="text-3xs text-emerald-400 font-bold ml-1">+${doubleXP} XP🔥</span>
+                    </label>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        // --- TJEK OPGAVE (GIVER XP OG GEMMER) ---
+        function toggleTask(id, xpValue, checkbox, isOverdue = false) {
+            if (!currentUser) {
+                alert("Vælg venligst en bruger øverst først!");
+                checkbox.checked = !checkbox.checked;
+                return;
+            }
+
+            if (checkbox.checked) {
+                completedToday.push(id);
+                addXPToUser(currentUser, xpValue);
+                
+                // Konfetti-effekt
+                confetti({
+                    particleCount: 50,
+                    spread: 40,
+                    origin: { y: 0.9 }
+                });
+
+                if (isOverdue) {
+                    // Fjern den fra overdue, nu hvor den er løst
+                    overdueTasks = overdueTasks.filter(item => item !== id);
+                    localStorage.setItem('padel_overdue', JSON.stringify(overdueTasks));
+                    // Genbyg den normale kategori for at få den tilbage der (men markeret som udført)
+                    buildOverdueList();
+                    // Genopbyg alle lister, så den dukker op som tjekket af i sin originale kategori
+                    reloadAllLists();
+                } else {
+                    checkCategoryCompletion(checkbox);
+                }
+
+            } else {
+                completedToday = completedToday.filter(item => item !== id);
+                addXPToUser(currentUser, -xpValue); // Trækker XP fra igen, hvis man fjerner markeringen
+            }
+
+            localStorage.setItem('padel_completed_today', JSON.stringify(completedToday));
+            updateProgress();
+        }
+
+        function reloadAllLists() {
+            buildList('tasks-coworking', data.coworking);
+            buildList('tasks-dame', data.dame);
+            buildList('tasks-herre', data.herre);
+            buildList('tasks-opfyldning', data.opfyldning);
+            buildList('tasks-studierne', data.studierne);
+            buildList('tasks-bar', data.bar);
+            buildList('tasks-selskab', data.selskab);
+            buildList('tasks-ude', data.ude);
+            buildList('tasks-ekstra', data.ekstra[dagensKey] || []);
+            buildList('tasks-luk-bar', data.lukBar);
+            buildList('tasks-luk-ovrigt', data.lukOvrigt);
+        }
+
+        // Tilføjer XP til en bestemt bruger i listen
+        function addXPToUser(username, amount) {
+            users = users.map(u => {
+                if (u.name === username) {
+                    return { ...u, xp: Math.max(0, u.xp + amount) };
+                }
+                return u;
+            });
+            localStorage.setItem('padel_users', JSON.stringify(users));
+        }
+
+        // --- LEVEL LOGIK ---
+        function calculateLevel(xp) {
+            if (xp < 100) return 1;
+            if (xp < 250) return 2;
+            if (xp < 450) return 3;
+            if (xp < 650) return 4;
+            return 5;
+        }
+
+        function getLevelName(xp) {
+            const lvl = calculateLevel(xp);
+            if (lvl === 1) return "Novice 🎾";
+            if (lvl === 2) return "Bane-ansvarlig 🧹";
+            if (lvl === 3) return "Café-bestyrer ☕";
+            if (lvl === 4) return "Center-superstar ⭐";
+            return "Padel-legende 🏆";
+        }
+
+        // --- SKIFT MELLEM FANEBLADE ---
+        function switchTab(tab) {
+            activeTab = tab;
+            const tabVagt = document.getElementById('tab-vagt');
+            const tabLuk = document.getElementById('tab-luk');
+            const secVagt = document.getElementById('section-vagt');
+            const secLuk = document.getElementById('section-luk');
+
+            if (tab === 'vagt') {
+                tabVagt.className = "flex-1 py-2 text-center text-sm font-semibold rounded-md bg-emerald-500 text-slate-950 transition-all";
+                tabLuk.className = "flex-1 py-2 text-center text-sm font-semibold rounded-md text-slate-400 hover:text-slate-200 transition-all";
+                secVagt.classList.remove('hidden');
+                secLuk.classList.add('hidden');
+            } else {
+                tabLuk.className = "flex-1 py-2 text-center text-sm font-semibold rounded-md bg-emerald-500 text-slate-950 transition-all";
+                tabVagt.className = "flex-1 py-2 text-center text-sm font-semibold rounded-md text-slate-400 hover:text-slate-200 transition-all";
+                secLuk.classList.remove('hidden');
+                secVagt.classList.add('hidden');
+            }
+            updateProgress();
+        }
+
+        // Tjekker om en hel kategori er fuldført
+        function checkCategoryCompletion(checkbox) {
+            const card = checkbox.closest('.card-category');
+            if (!card) return;
+            const checkboxes = card.querySelectorAll('input[type="checkbox"]');
+            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+            
+            if (allChecked) {
+                confetti({
+                    particleCount: 100,
+                    spread: 80,
+                    origin: { y: 0.8 }
+                });
+            }
+        }
+
+        // --- OPDATER DET VISUELLE FREMSKRIDT PÅ SKÆRMEN ---
+        function updateProgress() {
+            const activeContainer = activeTab === 'vagt' ? document.getElementById('section-vagt') : document.getElementById('section-luk');
+            
+            // Medregn "Overdue" sektionen, hvis der er uafsluttede ting derinde
+            const overdueCheckboxes = document.querySelectorAll('#tasks-overdue input[type="checkbox"]');
+            const overdueChecked = document.querySelectorAll('#tasks-overdue input[type="checkbox"]:checked');
+
+            const screenCheckboxes = activeContainer.querySelectorAll('input[type="checkbox"]');
+            const screenChecked = activeContainer.querySelectorAll('input[type="checkbox"]:checked');
+
+            const total = screenCheckboxes.length + overdueCheckboxes.length;
+            const checked = screenChecked.length + overdueChecked.length;
+
+            const percentage = total > 0 ? Math.round((checked / total) * 100) : 0;
+            
+            document.getElementById('progress-bar').style.width = percentage + "%";
+            document.getElementById('progress-text').innerText = `${checked}/${total} opgaver (${percentage}%)`;
+
+            // Opdater XP & Level for den nuværende bruger
+            if (currentUser) {
+                const userObj = users.find(u => u.name === currentUser);
+                if (userObj) {
+                    document.getElementById('xp-display').innerText = `${userObj.xp} XP`;
+                    document.getElementById('level-badge').innerText = `Level ${calculateLevel(userObj.xp)}: ${getLevelName(userObj.xp)}`;
+                }
+            } else {
+                document.getElementById('xp-display').innerText = `0 XP`;
+                document.getElementById('level-badge').innerText = `Log ind`;
+            }
+        }
+
+        // --- AFSLUT VAGT LOGIK (Gem uafsluttede opgaver som overdue til næste dag) ---
+        function endShift() {
+            if (!confirm("Vil du afslutte vagten nu? Appen vil nulstille dagens tjekliste, og uafsluttede opgaver ruller automatisk videre til næste hold.")) {
+                return;
+            }
+
+            // Find ALLE opgaver, der skulle have været lavet i dag
+            const activeVagtTasks = [
+                ...data.coworking, ...data.dame, ...data.herre, ...data.opfyldning,
+                ...data.studierne, ...data.bar, ...data.selskab, ...data.ude,
+                ...(data.ekstra[dagensKey] || []),
+                ...data.lukBar, ...data.lukOvrigt
+            ];
+
+            let newOverdue = [];
+
+            // Gennemgå alle og find ud af hvilke der IKKE er tjekket af i dag
+            activeVagtTasks.forEach(task => {
+                if (!completedToday.includes(task.id)) {
+                    newOverdue.push(task.id);
+                }
+            });
+
+            // Gem de nye overskredne opgaver (og bevar dem der evt. stadig lå i overdue fra før og stadig ikke er løst)
+            const remainingOldOverdue = overdueTasks.filter(id => !completedToday.includes(id));
+            const mergedOverdue = Array.from(new Set([...remainingOldOverdue, ...newOverdue]));
+
+            localStorage.setItem('padel_overdue', JSON.stringify(mergedOverdue));
+            overdueTasks = mergedOverdue;
+
+            // Nulstil dagens udførte
+            completedToday = [];
+            localStorage.setItem('padel_completed_today', JSON.stringify(completedToday));
+
+            alert("Vagten er afsluttet! Dagens opgaver er nulstillet, og uafsluttede ting er sendt videre til næste vagt.");
+            
+            // Genstart siden for at rydde alt pænt op
+            window.location.reload();
+        }
+    </script>
+</body>
+</html>
